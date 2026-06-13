@@ -436,4 +436,138 @@ Recommendations:
         file_name="ATS_Report.txt",
         mime="text/plain"
     )
-   
+   # ==========================================
+# PARSED RESUME
+# ==========================================
+
+st.subheader("📄 Parsed Resume")
+
+parsed_resume = {
+    "Email": email,
+    "Phone": phone,
+    "Total Words": len(resume_text.split()),
+    "Detected Skills": len(resume_skills)
+}
+
+st.json(parsed_resume)
+# ==========================================
+# JD ANALYSIS
+# ==========================================
+
+st.subheader("📋 JD Analysis")
+
+jd_analysis = {
+    "Required Skills": jd_skills,
+    "Total Required Skills": len(jd_skills)
+}
+match_category = ""
+
+if final_score >= 85:
+    match_category = "Excellent Match"
+
+elif final_score >= 70:
+    match_category = "Strong Match"
+
+elif final_score >= 50:
+    match_category = "Moderate Match"
+
+else:
+    match_category = "Low Match"
+
+st.success(f"Match Category: {match_category}")
+# ==========================================
+# RECOMMENDATION
+# ==========================================
+
+st.subheader("💡 Recommendation")
+
+recommendation = ""
+
+if final_score >= 85:
+    recommendation = "Recommended for Interview"
+
+elif final_score >= 70:
+    recommendation = "Consider for Interview"
+
+elif final_score >= 50:
+    recommendation = "Needs Resume Improvement"
+
+else:
+    recommendation = "Not Recommended"
+
+st.info(recommendation)
+# ==========================================
+# INTERVIEW QUESTIONS
+# ==========================================
+
+st.subheader("🎤 Interview Questions")
+
+questions = []
+
+for skill in matched_skills[:10]:
+
+    questions.extend([
+        f"Explain your experience with {skill}.",
+        f"What real-world projects have you completed using {skill}?",
+        f"What challenges did you face while working with {skill}?",
+        f"How would you rate your expertise in {skill}?"
+    ])
+
+if not questions:
+    questions = [
+        "Tell me about yourself.",
+        "Describe a challenging project.",
+        "Why should we hire you?",
+        "What are your strengths and weaknesses?"
+    ]
+
+for i, q in enumerate(questions, start=1):
+    st.write(f"{i}. {q}")
+    # ==========================================
+# EXPORT REPORT
+# ==========================================
+
+report = f"""
+==================================================
+AI RESUME SCREENING REPORT
+==================================================
+
+PARSED RESUME
+-------------
+Email: {email}
+Phone: {phone}
+Total Words: {len(resume_text.split())}
+
+JD ANALYSIS
+-----------
+Required Skills:
+{", ".join(jd_skills)}
+
+MATCH SCORE
+-----------
+Final ATS Score: {final_score:.2f}%
+Semantic Match: {semantic_score:.2f}%
+Skill Match: {skill_score:.2f}%
+
+Matched Skills:
+{", ".join(matched_skills)}
+
+Missing Skills:
+{", ".join(missing_skills)}
+
+RECOMMENDATION
+--------------
+{recommendation}
+
+ADDITIONAL RECOMMENDATIONS
+--------------------------
+{chr(10).join(recommendations)}
+
+INTERVIEW QUESTIONS
+-------------------
+{chr(10).join(questions)}
+
+==================================================
+END OF REPORT
+==================================================
+"""
