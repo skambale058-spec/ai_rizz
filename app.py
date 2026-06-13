@@ -5,9 +5,9 @@ import re
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --------------------------
+# ==========================================
 # PAGE CONFIG
-# --------------------------
+# ==========================================
 
 st.set_page_config(
     page_title="AI Resume Screening System",
@@ -16,10 +16,23 @@ st.set_page_config(
 )
 
 st.title("📄 AI Resume Screening System")
+st.markdown("Upload a resume and compare it with a Job Description using AI.")
 
-# --------------------------
+# ==========================================
+# LOAD MODEL (CACHE)
+# ==========================================
+
+@st.cache_resource
+def load_model():
+    return SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2"
+    )
+
+model = load_model()
+
+# ==========================================
 # INPUTS
-# --------------------------
+# ==========================================
 
 job_desc = st.text_area(
     "Enter Job Description",
@@ -32,13 +45,13 @@ resume_input = st.text_area(
 )
 
 uploaded_file = st.file_uploader(
-    "Upload Resume PDF (Optional)",
+    "Upload Resume PDF",
     type=["pdf"]
 )
 
-# --------------------------
+# ==========================================
 # SKILLS DATABASE
-# --------------------------
+# ==========================================
 
 skills_db = [
     "python",
@@ -77,9 +90,9 @@ skills_db = [
     "excel"
 ]
 
-# --------------------------
+# ==========================================
 # PDF READER
-# --------------------------
+# ==========================================
 
 def extract_text_from_pdf(pdf_file):
     text = ""
@@ -91,64 +104,75 @@ def extract_text_from_pdf(pdf_file):
             page_text = page.extract_text()
 
             if page_text:
-                text += page_text + " "
+                text += page_text + "\n"
 
-    except Exception:
+    except Exception as e:
+        st.error(f"PDF Error: {e}")
         return ""
 
     return text
 
 
-# --------------------------
+# ==========================================
 # CLEAN TEXT
-# --------------------------
+# ==========================================
 
 def clean_text(text):
     text = text.lower()
-    text = re.sub(r'[^a-z0-9 ]', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    return text
+    text = re.sub(r"[^a-z0-9 ]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
-# --------------------------
+# ==========================================
 # SKILL EXTRACTION
-# --------------------------
+# ==========================================
 
 def extract_skills(text):
-    text = text.lower()
 
     found = []
 
     for skill in skills_db:
-        if skill.lower() in text:
+
+        pattern = r"\b" + re.escape(skill) + r"\b"
+
+        if re.search(pattern, text):
             found.append(skill)
 
-    return sorted(list(set(found)))
+    return sorted(set(found))
 
 
-# --------------------------
-# EMAIL / PHONE
-# --------------------------
+# ==========================================
+# EMAIL EXTRACTION
+# ==========================================
 
 def extract_email(text):
+
     emails = re.findall(
         r'[\w\.-]+@[\w\.-]+\.\w+',
         text
     )
+
     return emails[0] if emails else "Not Found"
 
 
+# ==========================================
+# PHONE EXTRACTION
+# ==========================================
+
 def extract_phone(text):
+
     phones = re.findall(
-        r'\+?\d[\d\s\-]{8,15}',
+        r'(\+?\d[\d\s\-]{8,15}\d)',
         text
     )
+
     return phones[0] if phones else "Not Found"
 
 
-# --------------------------
-# ANALYZE
-# --------------------------
+# ==========================================
+# ANALYZE BUTTON
+# ==========================================
 
 if st.button("Analyze Resume"):
 
@@ -165,63 +189,55 @@ if st.button("Analyze Resume"):
         resume_text = resume_input
 
     else:
-        st.error(
-            "Please upload a PDF or paste resume text."
-        )
+        st.error("Upload a PDF or paste resume text.")
         st.stop()
 
-    if len(resume_text.strip()) == 0:
-        st.error(
-            "Unable to extract text from resume."
-        )
+    if not resume_text.strip():
+        st.error("Unable to extract resume text.")
         st.stop()
 
-    # --------------------------
+    # ==========================================
     # CLEAN
-    # --------------------------
+    # ==========================================
 
     clean_jd = clean_text(job_desc)
     clean_resume = clean_text(resume_text)
 
-    # --------------------------
-    # PARSE RESUME
-    # --------------------------
+    # ==========================================
+    # CONTACT INFO
+    # ==========================================
 
     email = extract_email(resume_text)
     phone = extract_phone(resume_text)
 
-    # --------------------------
+    # ==========================================
     # SKILLS
-    # --------------------------
+    # ==========================================
 
-    resume_skills = extract_skills(clean_resume)
     jd_skills = extract_skills(clean_jd)
+    resume_skills = extract_skills(clean_resume)
 
     matched_skills = sorted(
-        list(set(resume_skills) & set(jd_skills))
+        set(jd_skills) & set(resume_skills)
     )
 
     missing_skills = sorted(
-        list(set(jd_skills) - set(resume_skills))
+        set(jd_skills) - set(resume_skills)
     )
 
     if len(jd_skills) > 0:
         skill_score = (
-            len(matched_skills) /
-            len(jd_skills)
+            len(matched_skills)
+            / len(jd_skills)
         ) * 100
     else:
         skill_score = 0
 
-    # --------------------------
-    # SEMANTIC MATCHING
-    # --------------------------
+    # ==========================================
+    # SEMANTIC SCORE
+    # ==========================================
 
-    with st.spinner("Calculating ATS score..."):
-
-        model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2"
-        )
+    with st.spinner("Calculating ATS Score..."):
 
         embeddings = model.encode(
             [clean_jd, clean_resume]
@@ -232,23 +248,23 @@ if st.button("Analyze Resume"):
             [embeddings[1]]
         )[0][0] * 100
 
-    # --------------------------
+    # ==========================================
     # FINAL SCORE
-    # --------------------------
+    # ==========================================
 
     final_score = (
-        semantic_score * 0.70 +
-        skill_score * 0.30
+        semantic_score * 0.70
+        + skill_score * 0.30
     )
 
-    final_score = min(
-        max(final_score, 0),
-        100
+    final_score = max(
+        min(final_score, 100),
+        0
     )
 
-    # --------------------------
+    # ==========================================
     # RESULTS
-    # --------------------------
+    # ==========================================
 
     st.header("📊 ATS Analysis")
 
@@ -269,27 +285,28 @@ if st.button("Analyze Resume"):
         f"{skill_score:.2f}%"
     )
 
-    # --------------------------
-    # RESUME DETAILS
-    # --------------------------
+    st.progress(int(final_score))
+
+    # ==========================================
+    # CONTACT INFO
+    # ==========================================
 
     st.subheader("📄 Resume Details")
 
-    st.write("Email:", email)
-    st.write("Phone:", phone)
+    st.write("📧 Email:", email)
+    st.write("📱 Phone:", phone)
 
-    # --------------------------
-    # JD ANALYSIS
-    # --------------------------
+    # ==========================================
+    # JD SKILLS
+    # ==========================================
 
-    st.subheader("🎯 Job Description Analysis")
+    st.subheader("🎯 Required Skills")
 
-    st.write("Required Skills:")
     st.write(jd_skills)
 
-    # --------------------------
-    # SKILL MATCHING
-    # --------------------------
+    # ==========================================
+    # MATCHED SKILLS
+    # ==========================================
 
     st.subheader("✅ Matched Skills")
 
@@ -298,6 +315,10 @@ if st.button("Analyze Resume"):
     else:
         st.warning("No matching skills found.")
 
+    # ==========================================
+    # MISSING SKILLS
+    # ==========================================
+
     st.subheader("❌ Missing Skills")
 
     if missing_skills:
@@ -305,55 +326,57 @@ if st.button("Analyze Resume"):
     else:
         st.success("No missing skills detected.")
 
-    # --------------------------
+    # ==========================================
     # RECOMMENDATIONS
-    # --------------------------
+    # ==========================================
+
+    st.subheader("💡 Recommendations")
 
     recommendations = []
 
-    if final_score < 50:
+    if final_score >= 80:
         recommendations.append(
-            "Resume needs significant improvement."
+            "Excellent match for the role."
         )
 
-    elif final_score < 70:
+    elif final_score >= 60:
         recommendations.append(
-            "Resume partially matches the role."
+            "Good match but can be improved."
         )
 
     else:
         recommendations.append(
-            "Resume is a strong match."
+            "Resume requires significant improvement."
         )
 
     if missing_skills:
         recommendations.append(
-            "Add these skills if applicable: "
+            "Add relevant missing skills: "
             + ", ".join(missing_skills)
         )
 
     if len(resume_text.split()) < 250:
         recommendations.append(
-            "Resume appears short. Add more project and experience details."
+            "Add more project and work experience details."
         )
-
-    st.subheader("💡 Recommendations")
 
     for item in recommendations:
         st.write("•", item)
 
-    # --------------------------
+    # ==========================================
     # INTERVIEW QUESTIONS
-    # --------------------------
+    # ==========================================
 
     st.subheader("🎤 Suggested Interview Questions")
 
     questions = []
 
     for skill in jd_skills[:10]:
+
         questions.append(
             f"Describe your experience with {skill}."
         )
+
         questions.append(
             f"What challenges have you faced while using {skill}?"
         )
@@ -368,9 +391,9 @@ if st.button("Analyze Resume"):
     for q in questions:
         st.write("•", q)
 
-    # --------------------------
+    # ==========================================
     # RESUME PREVIEW
-    # --------------------------
+    # ==========================================
 
     st.subheader("📑 Resume Preview")
 
@@ -380,9 +403,9 @@ if st.button("Analyze Resume"):
         height=250
     )
 
-    # --------------------------
-    # EXPORT REPORT
-    # --------------------------
+    # ==========================================
+    # REPORT
+    # ==========================================
 
     report = f"""
 ATS RESUME ANALYSIS REPORT
@@ -408,8 +431,9 @@ Recommendations:
 """
 
     st.download_button(
-        label="📥 Download Report",
-        data=report,
+        "📥 Download Report",
+        report,
         file_name="ATS_Report.txt",
         mime="text/plain"
     )
+   
