@@ -1,286 +1,310 @@
-import streamlit as st
-import PyPDF2
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import HTMLResponse
+import fitz
 import re
-import numpy as np
 
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+try:
+    from sentence_transformers import SentenceTransformer
+    from sklearn.metrics.pairwise import cosine_similarity
 
-# ==========================================
-# PAGE CONFIG
-# ==========================================
+    MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+except:
+    MODEL = None
 
-st.set_page_config(
-    page_title="AI Resume Screening System",
-    page_icon="📄",
-    layout="wide"
-)
+app = FastAPI(title="Professional Resume Analyzer")
 
-st.title("📄 AI Resume Screening System")
-st.markdown("Upload a resume and compare it with a Job Description using AI.")
+SKILLS = [
+    "python","java","javascript","typescript",
+    "react","nextjs","nodejs","express",
+    "fastapi","django","flask",
+    "aws","azure","gcp",
+    "docker","kubernetes",
+    "mongodb","postgresql","mysql",
+    "redis","tensorflow","pytorch",
+    "machine learning","deep learning",
+    "git","linux","microservices"
+]
 
-# ==========================================
-# LOAD MODEL (CACHE)
-# ==========================================
 
-@st.cache_resource
-def load_model():
-    return SentenceTransformer("all-MiniLM-L6-v2")
-
-model = load_model()
-
-# ==========================================
-# INPUTS
-# ==========================================
-
-job_desc = st.text_area("Enter Job Description", height=200)
-resume_input = st.text_area("Paste Resume Text (Optional)", height=200)
-
-uploaded_file = st.file_uploader("Upload Resume PDF", type=["pdf"])
-
-# ==========================================
-# SKILLS DATABASE (EXPANDABLE)
-# ==========================================
-
-skills_db = set([
-    "python","java","sql","mysql","mongodb",
-    "machine learning","deep learning","nlp",
-    "data science","pandas","numpy","tensorflow",
-    "pytorch","scikit-learn","flask","django",
-    "fastapi","react","angular","javascript",
-    "typescript","html","css","aws","azure",
-    "gcp","docker","kubernetes","git","power bi",
-    "tableau","excel"
-])
-
-# ==========================================
-# PDF TEXT EXTRACTION
-# ==========================================
-
-def extract_text_from_pdf(pdf_file):
+def extract_pdf_text(file_bytes):
     text = ""
-    try:
-        reader = PyPDF2.PdfReader(pdf_file)
+    pdf = fitz.open(stream=file_bytes, filetype="pdf")
 
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-
-    except Exception as e:
-        st.error(f"PDF Error: {e}")
-        return ""
+    for page in pdf:
+        text += page.get_text()
 
     return text
 
 
-# ==========================================
-# CLEAN TEXT
-# ==========================================
-
-def clean_text(text):
-    if not text:
-        return ""
-
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9+.# ]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-# ==========================================
-# SKILL EXTRACTION
-# ==========================================
-
 def extract_skills(text):
-    found = set()
+    text = text.lower()
+    found = []
 
-    for skill in skills_db:
-        pattern = r"\b" + re.escape(skill) + r"\b"
-        if re.search(pattern, text):
-            found.add(skill)
+    for skill in SKILLS:
+        if skill.lower() in text:
+            found.append(skill)
 
-    return sorted(found)
-
-
-# ==========================================
-# EMAIL EXTRACTION
-# ==========================================
-
-def extract_email(text):
-    emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-    return emails[0] if emails else "Not Found"
+    return sorted(list(set(found)))
 
 
-# ==========================================
-# PHONE EXTRACTION (IMPROVED)
-# ==========================================
+def estimate_experience(text):
+    years = re.findall(r"(19\d{2}|20\d{2})", text)
 
-def extract_phone(text):
-    phones = re.findall(r'(\+?\d[\d\s\-]{8,15}\d)', text)
-    return phones[0] if phones else "Not Found"
+    if len(years) < 2:
+        return 0
 
+    years = sorted([int(y) for y in years])
 
-# ==========================================
-# ATS SEMANTIC SCORE
-# ==========================================
-
-def semantic_score(jd, resume):
-    embeddings = model.encode([jd, resume])
-
-    score = cosine_similarity(
-        [embeddings[0]],
-        [embeddings[1]]
-    )[0][0]
-
-    return max(0, min(score * 100, 100))
+    return max(0, years[-1] - years[0])
 
 
-# ==========================================
-# MAIN LOGIC
-# ==========================================
+def semantic_match(resume, jd):
+    if MODEL is None:
+        return 60
 
-if st.button("Analyze Resume"):
+    r = MODEL.encode([resume])
+    j = MODEL.encode([jd])
 
-    if not job_desc.strip():
-        st.error("Please enter a Job Description.")
-        st.stop()
+    score = cosine_similarity(r, j)[0][0]
 
-    # Resume input handling
-    resume_text = ""
+    return round(score * 100, 2)
 
-    if uploaded_file:
-        resume_text = extract_text_from_pdf(uploaded_file)
-    elif resume_input.strip():
-        resume_text = resume_input
-    else:
-        st.error("Upload a PDF or paste resume text.")
-        st.stop()
 
-    if not resume_text.strip():
-        st.error("Unable to extract resume text.")
-        st.stop()
+def ats_format_score(text):
+    score = 100
 
-    # CLEAN TEXT
-    jd_clean = clean_text(job_desc)
-    resume_clean = clean_text(resume_text)
+    sections = [
+        "experience",
+        "education",
+        "skills",
+        "project"
+    ]
 
-    # CONTACT INFO
-    email = extract_email(resume_text)
-    phone = extract_phone(resume_text)
+    for s in sections:
+        if s not in text.lower():
+            score -= 10
 
-    # SKILLS
-    jd_skills = set(extract_skills(jd_clean))
-    resume_skills = set(extract_skills(resume_clean))
+    if len(text) < 500:
+        score -= 20
 
-    matched_skills = jd_skills & resume_skills
-    missing_skills = jd_skills - resume_skills
+    return max(score, 0)
 
-    # SAFE SCORE CALCULATION
-    skill_score = (len(matched_skills) / len(jd_skills) * 100) if jd_skills else 0
-    semantic = semantic_score(jd_clean, resume_clean)
 
-    # FINAL SCORE (REALISTIC WEIGHTING)
-    final_score = (0.65 * semantic) + (0.35 * skill_score)
-    final_score = round(max(0, min(final_score, 100)), 2)
-
-    # ==========================================
-    # UI RESULTS
-    # ==========================================
-
-    st.header("📊 ATS Analysis")
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Final ATS Score", f"{final_score}%")
-    col2.metric("Semantic Match", f"{semantic:.2f}%")
-    col3.metric("Skill Match", f"{skill_score:.2f}%")
-
-    st.progress(int(final_score))
-
-    # ==========================================
-    # DETAILS
-    # ==========================================
-
-    st.subheader("📄 Resume Details")
-    st.write("📧 Email:", email)
-    st.write("📱 Phone:", phone)
-
-    # ==========================================
-    # SKILLS
-    # ==========================================
-
-    st.subheader("🎯 Required Skills")
-    st.write(sorted(jd_skills))
-
-    st.subheader("✅ Matched Skills")
-    st.success(", ".join(matched_skills) if matched_skills else "None")
-
-    st.subheader("❌ Missing Skills")
-    st.error(", ".join(missing_skills) if missing_skills else "None")
-
-    # ==========================================
-    # RECOMMENDATIONS
-    # ==========================================
-
-    st.subheader("💡 Recommendations")
-
-    if final_score >= 80:
-        st.success("Excellent match for the role.")
-    elif final_score >= 60:
-        st.warning("Good match but can be improved.")
-    else:
-        st.error("Resume needs significant improvement.")
-
-    if missing_skills:
-        st.info("Add skills: " + ", ".join(missing_skills))
-
-    if len(resume_text.split()) < 200:
-        st.warning("Add more project/work experience details.")
-
-    # ==========================================
-    # INTERVIEW QUESTIONS
-    # ==========================================
-
-    st.subheader("🎤 Interview Questions")
-
-    questions = []
-
-    for skill in list(jd_skills)[:8]:
-        questions.append(f"Explain your experience with {skill}.")
-        questions.append(f"What real-world projects used {skill}?")
-
-    if not questions:
-        questions = [
-            "Tell me about yourself",
-            "Describe a challenging project",
-            "Why this role?"
-        ]
-
-    for q in questions:
-        st.write("•", q)
-
-    # ==========================================
-    # REPORT
-    # ==========================================
-
-    report = f"""
-ATS RESUME REPORT
-
-Final Score: {final_score}%
-Semantic Score: {semantic:.2f}%
-Skill Score: {skill_score:.2f}%
-
-Email: {email}
-Phone: {phone}
-
-Matched Skills: {", ".join(matched_skills)}
-Missing Skills: {", ".join(missing_skills)}
-"""
-
-    st.download_button(
-        "📥 Download Report",
-        report,
-        file_name="ATS_Report.txt",
-        mime="text/plain"
+def achievement_score(text):
+    matches = re.findall(
+        r"\d+%|\$\d+|\d+\+|\d+x",
+        text
     )
+
+    return min(len(matches) * 5, 100)
+
+
+def calculate_ats(
+    semantic,
+    skills,
+    format_score,
+    achievements
+):
+    return round(
+        semantic * 0.40 +
+        skills * 0.30 +
+        format_score * 0.20 +
+        achievements * 0.10,
+        2
+    )
+
+
+def recommendations(
+    ats,
+    missing,
+    exp
+):
+    tips = []
+
+    if ats < 70:
+        tips.append(
+            "Resume needs optimization."
+        )
+
+    if missing:
+        tips.append(
+            "Add skills: " +
+            ", ".join(missing)
+        )
+
+    if exp < 2:
+        tips.append(
+            "Show internships, projects and achievements."
+        )
+
+    if not tips:
+        tips.append(
+            "Strong resume. Minor refinements only."
+        )
+
+    return tips
+
+
+@app.get("/", response_class=HTMLResponse)
+async def home():
+
+    return """
+    <html>
+    <head>
+    <title>AI Resume Analyzer</title>
+
+    <style>
+    body{
+        font-family:Arial;
+        background:#0f172a;
+        color:white;
+        padding:40px;
+    }
+
+    .card{
+        background:#1e293b;
+        padding:25px;
+        border-radius:16px;
+        margin-top:20px;
+    }
+
+    textarea{
+        width:100%;
+        height:180px;
+    }
+
+    button{
+        padding:12px 20px;
+        background:#3b82f6;
+        color:white;
+        border:none;
+        border-radius:10px;
+    }
+    </style>
+    </head>
+
+    <body>
+
+    <h1>Professional Resume Analyzer</h1>
+
+    <form action="/analyze"
+          enctype="multipart/form-data"
+          method="post">
+
+        <div class="card">
+
+        <h3>Upload Resume PDF</h3>
+
+        <input type="file"
+               name="resume">
+
+        <h3>Job Description</h3>
+
+        <textarea
+        name="jd"></textarea>
+
+        <br><br>
+
+        <button>
+        Analyze Resume
+        </button>
+
+        </div>
+
+    </form>
+
+    </body>
+    </html>
+    """
+
+
+@app.post("/analyze", response_class=HTMLResponse)
+async def analyze(
+    resume: UploadFile = File(...),
+    jd: str = Form(...)
+):
+
+    data = await resume.read()
+
+    text = extract_pdf_text(data)
+
+    resume_skills = extract_skills(text)
+    jd_skills = extract_skills(jd)
+
+    missing = list(
+        set(jd_skills) -
+        set(resume_skills)
+    )
+
+    semantic = semantic_match(text, jd)
+
+    skill_score = 0
+
+    if jd_skills:
+        skill_score = (
+            len(set(resume_skills)
+            & set(jd_skills))
+            /
+            len(jd_skills)
+        ) * 100
+
+    format_score = ats_format_score(text)
+
+    achievements = achievement_score(text)
+
+    ats = calculate_ats(
+        semantic,
+        skill_score,
+        format_score,
+        achievements
+    )
+
+    exp = estimate_experience(text)
+
+    tips = recommendations(
+        ats,
+        missing,
+        exp
+    )
+
+    return f"""
+    <html>
+    <body style='font-family:Arial;
+                 background:#0f172a;
+                 color:white;
+                 padding:40px;'>
+
+    <h1>Resume Analysis Report</h1>
+
+    <div style='background:#1e293b;
+                padding:20px;
+                border-radius:15px;'>
+
+    <h2>ATS Score: {ats}%</h2>
+
+    <h3>Semantic Match: {semantic}%</h3>
+
+    <h3>Skill Match: {round(skill_score,2)}%</h3>
+
+    <h3>Formatting: {format_score}%</h3>
+
+    <h3>Achievements: {achievements}%</h3>
+
+    <h3>Experience: {exp} Years</h3>
+
+    <h3>Detected Skills</h3>
+    {", ".join(resume_skills)}
+
+    <h3>Missing Skills</h3>
+    {", ".join(missing)}
+
+    <h3>Recommendations</h3>
+    <ul>
+    {''.join([f"<li>{x}</li>" for x in tips])}
+    </ul>
+
+    </div>
+
+    </body>
+    </html>
+    """
