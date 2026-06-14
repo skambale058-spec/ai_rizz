@@ -1,82 +1,99 @@
 import streamlit as st
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_page_config(
-    page_title="AI Career Roadmap Generator",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Job Copilot", layout="wide")
 
-st.title("🚀 AI Career Roadmap Generator")
+st.title("🚀 AI Job Hunting Copilot (Pro Max)")
 
-# ---------------- CAREER DATA ----------------
-CAREER_MAP = {
-    "Web Developer": {
-        "Beginner": ["HTML", "CSS", "JavaScript Basics"],
-        "Intermediate": ["React", "APIs", "Git"],
-        "Advanced": ["System Design", "Performance Optimization"]
-    },
-    "Data Scientist": {
-        "Beginner": ["Python", "Math Basics", "Pandas"],
-        "Intermediate": ["Machine Learning", "SQL", "EDA"],
-        "Advanced": ["Deep Learning", "NLP", "Model Deployment"]
-    },
-    "Cyber Security": {
-        "Beginner": ["Networking Basics", "Linux", "Security Fundamentals"],
-        "Intermediate": ["Ethical Hacking", "Firewalls", "Security Tools"],
-        "Advanced": ["Pen Testing", "Threat Analysis"]
-    }
+# ---------------- JOB ROLES ----------------
+JOBS = {
+    "Backend Developer": "python django fastapi databases api docker sql",
+    "Frontend Developer": "html css javascript react ui ux frontend",
+    "Data Scientist": "python machine learning deep learning pandas numpy sql",
+    "DevOps Engineer": "aws docker kubernetes ci cd linux cloud",
+    "Cyber Security Analyst": "network security ethical hacking firewall linux"
 }
 
-# ---------------- INPUT ----------------
-field = st.selectbox("Select Career Field", list(CAREER_MAP.keys()))
-level = st.selectbox("Select Level", ["Beginner", "Intermediate", "Advanced"])
+# ---------------- MATCH ENGINE ----------------
+def match_score(resume, job_desc):
+    tfidf = TfidfVectorizer()
+    vectors = tfidf.fit_transform([resume, job_desc])
+    score = cosine_similarity(vectors[0], vectors[1])[0][0]
+    return round(score * 100, 2)
 
-skills_input = st.text_area("Enter your current skills (comma separated)")
+# ---------------- RESUME INPUT ----------------
+resume = st.text_area("Paste Your Resume Text")
 
-# ---------------- LOGIC ----------------
-def generate_roadmap(field, level, skills_input):
+if st.button("Analyze Career Fit 🚀"):
 
-    required_skills = CAREER_MAP[field][level]
+    if not resume.strip():
+        st.warning("Please enter resume text")
+        st.stop()
 
-    user_skills = [
-        s.strip().lower()
-        for s in skills_input.split(",")
-        if s.strip() != ""
-    ]
+    results = []
 
-    missing_skills = [
-        skill for skill in required_skills
-        if skill.lower() not in user_skills
-    ]
+    for role, desc in JOBS.items():
+        score = match_score(resume.lower(), desc)
+        results.append((role, score))
 
-    return required_skills, missing_skills
+    results.sort(key=lambda x: x[1], reverse=True)
 
-# ---------------- BUTTON ----------------
-if st.button("Generate Roadmap 🚀"):
+    st.subheader("📊 Your Best Career Matches")
 
-    required, missing = generate_roadmap(
-        field,
-        level,
-        skills_input
-    )
+    for role, score in results:
+        if score > 70:
+            st.success(f"{role} → {score}% Fit")
+        elif score > 40:
+            st.info(f"{role} → {score}% Fit")
+        else:
+            st.error(f"{role} → {score}% Fit")
 
-    st.subheader("📚 Learning Roadmap")
+    best_role = results[0][0]
 
-    for i, skill in enumerate(required):
-        st.write(f"Step {i+1}: {skill}")
+    st.subheader("🎯 Best Recommended Role")
+    st.success(best_role)
 
-    st.subheader("❌ Missing Skills")
+    # ---------------- INTERVIEW QUESTIONS ----------------
+    st.subheader("🎤 Interview Questions")
 
-    if missing:
-        for m in missing:
-            st.error(m)
+    questions = {
+        "Backend Developer": [
+            "Explain REST API",
+            "What is database indexing?",
+            "What is microservices?"
+        ],
+        "Frontend Developer": [
+            "Difference between React and Angular",
+            "What is DOM?",
+            "Explain state vs props"
+        ],
+        "Data Scientist": [
+            "What is overfitting?",
+            "Explain ML pipeline",
+            "Difference between AI and ML"
+        ],
+        "DevOps Engineer": [
+            "What is Docker?",
+            "Explain CI/CD",
+            "What is Kubernetes?"
+        ],
+        "Cyber Security Analyst": [
+            "What is phishing?",
+            "Explain firewall",
+            "What is encryption?"
+        ]
+    }
+
+    for q in questions.get(best_role, []):
+        st.write("•", q)
+
+    # ---------------- CAREER ADVICE ----------------
+    st.subheader("💡 Career Advice")
+
+    if results[0][1] > 80:
+        st.success("You are highly job ready 🚀")
+    elif results[0][1] > 50:
+        st.info("Improve a few skills to become job ready")
     else:
-        st.success("You already know all required skills!")
-
-    # ---------------- PROGRESS ----------------
-    progress = 100 - (len(missing) / len(required) * 100)
-
-    st.subheader("📊 Progress")
-
-    st.progress(int(progress))
-
-    st.metric("Completion", f"{int(progress)}%")
+        st.warning("Focus on learning core skills first")
