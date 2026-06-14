@@ -1,134 +1,90 @@
 import streamlit as st
-import fitz
-import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import random
 
-# ---------------- UI CONFIG ----------------
-st.set_page_config(
-    page_title="AI Learning Companion",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Interview Coach", layout="wide")
 
-st.title("📚 AI Learning Companion (Smart Study Assistant)")
+st.title("🎤 AI Interview Prep Coach")
 
-# ---------------- PDF PARSER ----------------
-def extract_text(pdf_file):
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+# ---------------- QUESTION BANK ----------------
+QUESTIONS = {
+    "Python Developer": [
+        "What is Python and why is it used?",
+        "Explain list vs tuple",
+        "What is OOP in Python?",
+        "What is decorators in Python?"
+    ],
+    "Data Science": [
+        "What is machine learning?",
+        "Difference between supervised and unsupervised learning?",
+        "What is overfitting?",
+        "Explain confusion matrix"
+    ],
+    "Web Developer": [
+        "What is HTML?",
+        "Difference between React and Angular?",
+        "What is REST API?",
+        "What is CSS?"
+    ]
+}
 
-# ---------------- TEXT CLEAN ----------------
-def clean_text(text):
-    text = re.sub(r'\s+', ' ', text)
-    return text
-
-# ---------------- SUMMARY ----------------
-def generate_summary(text):
-    sentences = text.split(".")
-    summary = ". ".join(sentences[:5])
-    return summary
-
-# ---------------- MCQ GENERATOR ----------------
-def generate_mcq(text):
-    sentences = text.split(".")
-    questions = []
-
-    for s in sentences[:10]:
-        if len(s.strip()) > 20:
-            q = f"What is mentioned in: '{s.strip()[:40]}...?'"
-            questions.append(q)
-
-    return questions[:5]
-
-# ---------------- FLASHCARDS ----------------
-def flashcards(text):
-    sentences = text.split(".")
-    cards = []
-
-    for s in sentences[:8]:
-        if len(s.strip()) > 20:
-            cards.append({
-                "front": s[:60],
-                "back": s
-            })
-
-    return cards
-
-# ---------------- SIMPLE Q&A ----------------
-def answer_question(text, question):
-    sentences = text.split(".")
-    best = ""
-
-    for s in sentences:
-        if any(word.lower() in s.lower() for word in question.split()):
-            best = s
-            break
-
-    return best if best else "Answer not found in document."
+# ---------------- SCORE FUNCTION ----------------
+def score_answer(question, answer):
+    tfidf = TfidfVectorizer()
+    vectors = tfidf.fit_transform([question, answer])
+    score = cosine_similarity(vectors[0], vectors[1])[0][0]
+    return round(score * 100, 2)
 
 # ---------------- UI ----------------
-uploaded_file = st.file_uploader("📄 Upload Study PDF", type=["pdf"])
+role = st.selectbox("Choose Role", list(QUESTIONS.keys()))
 
-if uploaded_file:
+st.subheader("🧠 Answer the questions below")
 
-    text = extract_text(uploaded_file)
-    text = clean_text(text)
+answers = []
+scores = []
 
-    st.subheader("📊 Document Overview")
-    st.write("Total Characters:", len(text))
+for i, q in enumerate(QUESTIONS[role]):
+    st.write(f"Q{i+1}. {q}")
+    ans = st.text_area(f"Your Answer {i+1}", key=i)
 
-    # ---------------- SUMMARY ----------------
-    st.subheader("🧠 Smart Summary")
-    summary = generate_summary(text)
-    st.info(summary)
+    if ans:
+        s = score_answer(q, ans)
+        scores.append(s)
+        answers.append((q, ans, s))
 
-    # ---------------- MCQ ----------------
-    st.subheader("🎯 Practice MCQs")
-    mcqs = generate_mcq(text)
+# ---------------- RESULT ----------------
+if st.button("Submit Interview 🚀"):
 
-    for i, q in enumerate(mcqs):
-        st.write(f"{i+1}. {q}")
+    if not answers:
+        st.warning("Please answer at least one question")
+        st.stop()
 
-    # ---------------- FLASHCARDS ----------------
-    st.subheader("🧾 Flashcards")
+    st.subheader("📊 Interview Results")
 
-    cards = flashcards(text)
+    avg_score = sum(scores) / len(scores)
 
-    for c in cards:
-        with st.expander(c["front"]):
-            st.write(c["back"])
+    st.metric("Final Score", f"{round(avg_score,2)}%")
 
-    # ---------------- Q&A ----------------
-    st.subheader("💬 Ask Doubt from Notes")
+    for q, a, s in answers:
+        st.write("------")
+        st.write("❓", q)
+        st.write("💬 Your Answer:", a)
+        st.write("📊 Score:", s)
 
-    user_q = st.text_input("Ask a question")
+        if s < 50:
+            st.error("Weak answer - add more explanation + keywords")
+        elif s < 75:
+            st.warning("Good but can be improved")
+        else:
+            st.success("Strong answer")
 
-    if user_q:
-        ans = answer_question(text, user_q)
-        st.success(ans)
+# ---------------- FEEDBACK ----------------
+if scores:
+    st.subheader("💡 Overall Feedback")
 
-    # ---------------- DOWNLOAD REPORT ----------------
-    report = f"""
-AI STUDY REPORT
-----------------
-
-SUMMARY:
-{summary}
-
-MCQs:
-{mcqs}
-
-FLASHCARDS:
-{cards}
-"""
-
-    st.download_button(
-        "📥 Download Study Notes",
-        report,
-        file_name="study_report.txt"
-    )
-    
+    if avg_score > 80:
+        st.success("Excellent interview performance 👍")
+    elif avg_score > 60:
+        st.info("Good, but practice more technical depth")
+    else:
+        st.warning("Need strong improvement in answers")
