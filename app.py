@@ -1,18 +1,22 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import HTMLResponse
+```python
+import streamlit as st
 import fitz
 import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-try:
-    from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity
+# --------------------------
+# PAGE CONFIG
+# --------------------------
+st.set_page_config(
+    page_title="AI Resume Analyzer",
+    page_icon="📄",
+    layout="wide"
+)
 
-    MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-except:
-    MODEL = None
-
-app = FastAPI(title="Professional Resume Analyzer")
-
+# --------------------------
+# SKILLS DATABASE
+# --------------------------
 SKILLS = [
     "python","java","javascript","typescript",
     "react","nextjs","nodejs","express",
@@ -22,55 +26,82 @@ SKILLS = [
     "mongodb","postgresql","mysql",
     "redis","tensorflow","pytorch",
     "machine learning","deep learning",
-    "git","linux","microservices"
+    "git","linux","microservices",
+    "data science","sql","html","css"
 ]
 
-
-def extract_pdf_text(file_bytes):
+# --------------------------
+# PDF PARSER
+# --------------------------
+def extract_pdf_text(uploaded_file):
     text = ""
-    pdf = fitz.open(stream=file_bytes, filetype="pdf")
+
+    pdf = fitz.open(
+        stream=uploaded_file.read(),
+        filetype="pdf"
+    )
 
     for page in pdf:
         text += page.get_text()
 
     return text
 
-
+# --------------------------
+# SKILL EXTRACTION
+# --------------------------
 def extract_skills(text):
     text = text.lower()
+
     found = []
 
     for skill in SKILLS:
-        if skill.lower() in text:
+        if skill in text:
             found.append(skill)
 
-    return sorted(list(set(found)))
+    return list(set(found))
 
-
+# --------------------------
+# EXPERIENCE DETECTION
+# --------------------------
 def estimate_experience(text):
-    years = re.findall(r"(19\d{2}|20\d{2})", text)
+
+    years = re.findall(
+        r"(19\d{2}|20\d{2})",
+        text
+    )
 
     if len(years) < 2:
         return 0
 
-    years = sorted([int(y) for y in years])
+    years = sorted(
+        [int(y) for y in years]
+    )
 
-    return max(0, years[-1] - years[0])
+    return years[-1] - years[0]
 
+# --------------------------
+# SEMANTIC MATCHING
+# --------------------------
+def semantic_match(resume_text, jd_text):
 
-def semantic_match(resume, jd):
-    if MODEL is None:
-        return 60
+    vectorizer = TfidfVectorizer()
 
-    r = MODEL.encode([resume])
-    j = MODEL.encode([jd])
+    vectors = vectorizer.fit_transform(
+        [resume_text, jd_text]
+    )
 
-    score = cosine_similarity(r, j)[0][0]
+    similarity = cosine_similarity(
+        vectors[0:1],
+        vectors[1:2]
+    )[0][0]
 
-    return round(score * 100, 2)
+    return round(similarity * 100, 2)
 
+# --------------------------
+# FORMAT SCORE
+# --------------------------
+def formatting_score(text):
 
-def ats_format_score(text):
     score = 100
 
     sections = [
@@ -80,8 +111,8 @@ def ats_format_score(text):
         "project"
     ]
 
-    for s in sections:
-        if s not in text.lower():
+    for section in sections:
+        if section not in text.lower():
             score -= 10
 
     if len(text) < 500:
@@ -89,8 +120,11 @@ def ats_format_score(text):
 
     return max(score, 0)
 
-
+# --------------------------
+# ACHIEVEMENT SCORE
+# --------------------------
 def achievement_score(text):
+
     matches = re.findall(
         r"\d+%|\$\d+|\d+\+|\d+x",
         text
@@ -98,213 +132,184 @@ def achievement_score(text):
 
     return min(len(matches) * 5, 100)
 
-
-def calculate_ats(
+# --------------------------
+# ATS SCORE
+# --------------------------
+def ats_score(
     semantic,
-    skills,
+    skill_score,
     format_score,
-    achievements
+    achievement
 ):
-    return round(
+
+    score = (
         semantic * 0.40 +
-        skills * 0.30 +
+        skill_score * 0.30 +
         format_score * 0.20 +
-        achievements * 0.10,
-        2
+        achievement * 0.10
     )
 
+    return round(score, 2)
 
-def recommendations(
+# --------------------------
+# FEEDBACK
+# --------------------------
+def generate_feedback(
     ats,
-    missing,
+    missing_skills,
     exp
 ):
+
     tips = []
 
     if ats < 70:
         tips.append(
-            "Resume needs optimization."
+            "Improve ATS compatibility."
         )
 
-    if missing:
+    if missing_skills:
         tips.append(
-            "Add skills: " +
-            ", ".join(missing)
+            "Add missing skills: "
+            + ", ".join(missing_skills)
         )
 
     if exp < 2:
         tips.append(
-            "Show internships, projects and achievements."
+            "Highlight internships and projects."
         )
 
     if not tips:
         tips.append(
-            "Strong resume. Minor refinements only."
+            "Strong resume."
         )
 
     return tips
 
+# --------------------------
+# UI
+# --------------------------
+st.title("🚀 Professional AI Resume Analyzer")
 
-@app.get("/", response_class=HTMLResponse)
-async def home():
+uploaded_resume = st.file_uploader(
+    "Upload Resume PDF",
+    type=["pdf"]
+)
 
-    return """
-    <html>
-    <head>
-    <title>AI Resume Analyzer</title>
+job_description = st.text_area(
+    "Paste Job Description",
+    height=250
+)
 
-    <style>
-    body{
-        font-family:Arial;
-        background:#0f172a;
-        color:white;
-        padding:40px;
-    }
+if st.button("Analyze Resume"):
 
-    .card{
-        background:#1e293b;
-        padding:25px;
-        border-radius:16px;
-        margin-top:20px;
-    }
+    if uploaded_resume is None:
+        st.error("Please upload a resume.")
+        st.stop()
 
-    textarea{
-        width:100%;
-        height:180px;
-    }
+    if not job_description.strip():
+        st.error("Please enter a job description.")
+        st.stop()
 
-    button{
-        padding:12px 20px;
-        background:#3b82f6;
-        color:white;
-        border:none;
-        border-radius:10px;
-    }
-    </style>
-    </head>
+    resume_text = extract_pdf_text(
+        uploaded_resume
+    )
 
-    <body>
+    resume_skills = extract_skills(
+        resume_text
+    )
 
-    <h1>Professional Resume Analyzer</h1>
+    jd_skills = extract_skills(
+        job_description
+    )
 
-    <form action="/analyze"
-          enctype="multipart/form-data"
-          method="post">
+    semantic = semantic_match(
+        resume_text,
+        job_description
+    )
 
-        <div class="card">
+    matched = len(
+        set(resume_skills)
+        &
+        set(jd_skills)
+    )
 
-        <h3>Upload Resume PDF</h3>
-
-        <input type="file"
-               name="resume">
-
-        <h3>Job Description</h3>
-
-        <textarea
-        name="jd"></textarea>
-
-        <br><br>
-
-        <button>
-        Analyze Resume
-        </button>
-
-        </div>
-
-    </form>
-
-    </body>
-    </html>
-    """
-
-
-@app.post("/analyze", response_class=HTMLResponse)
-async def analyze(
-    resume: UploadFile = File(...),
-    jd: str = Form(...)
-):
-
-    data = await resume.read()
-
-    text = extract_pdf_text(data)
-
-    resume_skills = extract_skills(text)
-    jd_skills = extract_skills(jd)
+    if len(jd_skills) > 0:
+        skill_score = (
+            matched /
+            len(jd_skills)
+        ) * 100
+    else:
+        skill_score = 0
 
     missing = list(
-        set(jd_skills) -
+        set(jd_skills)
+        -
         set(resume_skills)
     )
 
-    semantic = semantic_match(text, jd)
+    fmt = formatting_score(
+        resume_text
+    )
 
-    skill_score = 0
+    achievement = achievement_score(
+        resume_text
+    )
 
-    if jd_skills:
-        skill_score = (
-            len(set(resume_skills)
-            & set(jd_skills))
-            /
-            len(jd_skills)
-        ) * 100
+    experience = estimate_experience(
+        resume_text
+    )
 
-    format_score = ats_format_score(text)
-
-    achievements = achievement_score(text)
-
-    ats = calculate_ats(
+    final_ats = ats_score(
         semantic,
         skill_score,
-        format_score,
-        achievements
+        fmt,
+        achievement
     )
 
-    exp = estimate_experience(text)
-
-    tips = recommendations(
-        ats,
+    feedback = generate_feedback(
+        final_ats,
         missing,
-        exp
+        experience
     )
 
-    return f"""
-    <html>
-    <body style='font-family:Arial;
-                 background:#0f172a;
-                 color:white;
-                 padding:40px;'>
+    c1, c2, c3, c4 = st.columns(4)
 
-    <h1>Resume Analysis Report</h1>
+    c1.metric(
+        "ATS Score",
+        f"{final_ats}%"
+    )
 
-    <div style='background:#1e293b;
-                padding:20px;
-                border-radius:15px;'>
+    c2.metric(
+        "Semantic Match",
+        f"{semantic}%"
+    )
 
-    <h2>ATS Score: {ats}%</h2>
+    c3.metric(
+        "Skill Match",
+        f"{round(skill_score,2)}%"
+    )
 
-    <h3>Semantic Match: {semantic}%</h3>
+    c4.metric(
+        "Experience",
+        f"{experience} yrs"
+    )
 
-    <h3>Skill Match: {round(skill_score,2)}%</h3>
+    st.subheader("Detected Skills")
+    st.write(resume_skills)
 
-    <h3>Formatting: {format_score}%</h3>
+    st.subheader("Missing Skills")
+    st.write(missing)
 
-    <h3>Achievements: {achievements}%</h3>
+    st.subheader("Recommendations")
 
-    <h3>Experience: {exp} Years</h3>
+    for item in feedback:
+        st.write("✅", item)
 
-    <h3>Detected Skills</h3>
-    {", ".join(resume_skills)}
+    st.subheader("Resume Preview")
 
-    <h3>Missing Skills</h3>
-    {", ".join(missing)}
-
-    <h3>Recommendations</h3>
-    <ul>
-    {''.join([f"<li>{x}</li>" for x in tips])}
-    </ul>
-
-    </div>
-
-    </body>
-    </html>
-    """
+    st.text_area(
+        "",
+        resume_text[:5000],
+        height=300
+    )
+```
