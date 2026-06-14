@@ -1,90 +1,65 @@
 import streamlit as st
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_page_config(page_title="AI Interview Coach", layout="wide")
+st.set_page_config(page_title="AI Career Roadmap", layout="wide")
 
-st.title("🎤 AI Interview Prep Coach")
+st.title("🚀 AI Career Roadmap Generator")
 
-# ---------------- QUESTION BANK ----------------
-QUESTIONS = {
-    "Python Developer": [
-        "What is Python and why is it used?",
-        "Explain list vs tuple",
-        "What is OOP in Python?",
-        "What is decorators in Python?"
-    ],
-    "Data Science": [
-        "What is machine learning?",
-        "Difference between supervised and unsupervised learning?",
-        "What is overfitting?",
-        "Explain confusion matrix"
-    ],
-    "Web Developer": [
-        "What is HTML?",
-        "Difference between React and Angular?",
-        "What is REST API?",
-        "What is CSS?"
-    ]
+# ---------------- SKILL MAP ----------------
+CAREER_MAP = {
+    "Web Developer": {
+        "Beginner": ["HTML", "CSS", "JavaScript basics"],
+        "Intermediate": ["React", "APIs", "Git"],
+        "Advanced": ["System Design", "Performance Optimization"]
+    },
+    "Data Scientist": {
+        "Beginner": ["Python", "Math Basics", "Pandas"],
+        "Intermediate": ["Machine Learning", "SQL", "EDA"],
+        "Advanced": ["Deep Learning", "NLP", "Model Deployment"]
+    },
+    "Cyber Security": {
+        "Beginner": ["Networking basics", "Linux", "Security basics"],
+        "Intermediate": ["Ethical Hacking", "Firewalls", "Tools"],
+        "Advanced": ["Pen Testing", "Threat Analysis"]
+    }
 }
 
-# ---------------- SCORE FUNCTION ----------------
-def score_answer(question, answer):
-    tfidf = TfidfVectorizer()
-    vectors = tfidf.fit_transform([question, answer])
-    score = cosine_similarity(vectors[0], vectors[1])[0][0]
-    return round(score * 100, 2)
-
 # ---------------- UI ----------------
-role = st.selectbox("Choose Role", list(QUESTIONS.keys()))
+field = st.selectbox("Select Career Field", list(CAREER_MAP.keys()))
+level = st.selectbox("Select Level", ["Beginner", "Intermediate", "Advanced"])
 
-st.subheader("🧠 Answer the questions below")
+current_skills = st.text_area("Enter your current skills (comma separated)")
 
-answers = []
-scores = []
+# ---------------- ROADMAP ----------------
+def generate_roadmap(field, level, skills):
+    required = CAREER_MAP[field][level]
 
-for i, q in enumerate(QUESTIONS[role]):
-    st.write(f"Q{i+1}. {q}")
-    ans = st.text_area(f"Your Answer {i+1}", key=i)
+    user_skills = [s.strip().lower() for s in skills.split(",") if s]
 
-    if ans:
-        s = score_answer(q, ans)
-        scores.append(s)
-        answers.append((q, ans, s))
+    missing = [r for r in required if r.lower() not in user_skills]
 
-# ---------------- RESULT ----------------
-if st.button("Submit Interview 🚀"):
+    return required, missing
 
-    if not answers:
-        st.warning("Please answer at least one question")
-        st.stop()
+# ---------------- OUTPUT ----------------
+if st.button("Generate Roadmap 🚀"):
 
-    st.subheader("📊 Interview Results")
+    required, missing = generate_roadmap(field, level, current_skills)
 
-    avg_score = sum(scores) / len(scores)
+    st.subheader("📚 Learning Roadmap")
 
-    st.metric("Final Score", f"{round(avg_score,2)}%")
+    for i, r in enumerate(required):
+        st.write(f"Step {i+1}: {r}")
 
-    for q, a, s in answers:
-        st.write("------")
-        st.write("❓", q)
-        st.write("💬 Your Answer:", a)
-        st.write("📊 Score:", s)
+    st.subheader("❌ Missing Skills")
 
-        if s < 50:
-            st.error("Weak answer - add more explanation + keywords")
-        elif s < 75:
-            st.warning("Good but can be improved")
-        else:
-            st.success("Strong answer")
-
-# ---------------- FEEDBACK ----------------
-if scores:
-    st.subheader("💡 Overall Feedback")
-
-    if avg_score > 80:
-        st.success("Excellent interview performance 👍")
-    elif avg_score > 60:
-        st.info("Good, but practice more technical depth")
+    if missing:
+        for m in missing:
+            st.error(m)
     else:
-        st.warning("Need strong improvement in answers")
+        st.success("You already know all required skills!")
+
+    progress = 100 - (len(missing) / len(required) * 100)
+
+    st.subheader("📊 Progress")
+    st.progress(int(progress))
+
+    st.metric("Completion", f"{int(progress)}%")n answers")
