@@ -3,187 +3,132 @@ import fitz
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from io import StringIO
+import random
 
-# ---------------- UI ----------------
+# ---------------- UI CONFIG ----------------
 st.set_page_config(
-    page_title="AI Resume Analyzer Pro",
+    page_title="AI Learning Companion",
     layout="wide"
 )
 
-st.title("🚀 AI Resume Analyzer Pro")
-
-# ---------------- SKILLS DB ----------------
-SKILLS_DB = [
-    "python","java","javascript","react","nodejs","django","flask",
-    "fastapi","aws","azure","gcp","docker","kubernetes",
-    "mongodb","postgresql","mysql","redis",
-    "machine learning","deep learning","nlp",
-    "html","css","git","linux"
-]
+st.title("📚 AI Learning Companion (Smart Study Assistant)")
 
 # ---------------- PDF PARSER ----------------
-def parse_pdf(file):
+def extract_text(pdf_file):
+    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
     text = ""
-    doc = fitz.open(stream=file.read(), filetype="pdf")
     for page in doc:
         text += page.get_text()
     return text
 
-# ---------------- SKILL EXTRACTION ----------------
-def extract_skills(text):
-    text = text.lower()
-    return list(set([s for s in SKILLS_DB if s in text]))
+# ---------------- TEXT CLEAN ----------------
+def clean_text(text):
+    text = re.sub(r'\s+', ' ', text)
+    return text
 
-# ---------------- JD ANALYSIS ----------------
-def jd_analysis(jd_text):
-    return extract_skills(jd_text)
+# ---------------- SUMMARY ----------------
+def generate_summary(text):
+    sentences = text.split(".")
+    summary = ". ".join(sentences[:5])
+    return summary
 
-# ---------------- MATCH SCORE ----------------
-def match_score(resume, jd):
-    tfidf = TfidfVectorizer()
-    vectors = tfidf.fit_transform([resume, jd])
-    return round(cosine_similarity(vectors[0:1], vectors[1:2])[0][0] * 100, 2)
-
-# ---------------- EXPERIENCE ----------------
-def experience(text):
-    years = re.findall(r"(20\d{2}|19\d{2})", text)
-    if len(years) < 2:
-        return 0
-    years = sorted([int(y) for y in years])
-    return max(0, years[-1] - years[0])
-
-# ---------------- RECOMMENDATIONS ----------------
-def recommendations(score, missing, exp):
-    tips = []
-
-    if score < 70:
-        tips.append("Improve resume structure and add keywords from JD")
-
-    if missing:
-        tips.append("Add missing skills: " + ", ".join(missing))
-
-    if exp < 2:
-        tips.append("Highlight projects and internships")
-
-    if score > 85:
-        tips.append("Excellent profile — ready for interviews")
-
-    return tips
-
-# ---------------- INTERVIEW QUESTIONS ----------------
-def interview_questions(skills):
+# ---------------- MCQ GENERATOR ----------------
+def generate_mcq(text):
+    sentences = text.split(".")
     questions = []
 
-    if "python" in skills:
-        questions.append("Explain Python memory management")
+    for s in sentences[:10]:
+        if len(s.strip()) > 20:
+            q = f"What is mentioned in: '{s.strip()[:40]}...?'"
+            questions.append(q)
 
-    if "django" in skills:
-        questions.append("What is Django ORM?")
+    return questions[:5]
 
-    if "react" in skills:
-        questions.append("Difference between state and props")
+# ---------------- FLASHCARDS ----------------
+def flashcards(text):
+    sentences = text.split(".")
+    cards = []
 
-    if "machine learning" in skills:
-        questions.append("Explain overfitting and underfitting")
+    for s in sentences[:8]:
+        if len(s.strip()) > 20:
+            cards.append({
+                "front": s[:60],
+                "back": s
+            })
 
-    if not questions:
-        questions.append("Tell me about your last project")
+    return cards
 
-    return questions
+# ---------------- SIMPLE Q&A ----------------
+def answer_question(text, question):
+    sentences = text.split(".")
+    best = ""
 
-# ---------------- EXPORT ----------------
-def create_report(resume_text, jd_text, score, skills, missing, exp):
+    for s in sentences:
+        if any(word.lower() in s.lower() for word in question.split()):
+            best = s
+            break
+
+    return best if best else "Answer not found in document."
+
+# ---------------- UI ----------------
+uploaded_file = st.file_uploader("📄 Upload Study PDF", type=["pdf"])
+
+if uploaded_file:
+
+    text = extract_text(uploaded_file)
+    text = clean_text(text)
+
+    st.subheader("📊 Document Overview")
+    st.write("Total Characters:", len(text))
+
+    # ---------------- SUMMARY ----------------
+    st.subheader("🧠 Smart Summary")
+    summary = generate_summary(text)
+    st.info(summary)
+
+    # ---------------- MCQ ----------------
+    st.subheader("🎯 Practice MCQs")
+    mcqs = generate_mcq(text)
+
+    for i, q in enumerate(mcqs):
+        st.write(f"{i+1}. {q}")
+
+    # ---------------- FLASHCARDS ----------------
+    st.subheader("🧾 Flashcards")
+
+    cards = flashcards(text)
+
+    for c in cards:
+        with st.expander(c["front"]):
+            st.write(c["back"])
+
+    # ---------------- Q&A ----------------
+    st.subheader("💬 Ask Doubt from Notes")
+
+    user_q = st.text_input("Ask a question")
+
+    if user_q:
+        ans = answer_question(text, user_q)
+        st.success(ans)
+
+    # ---------------- DOWNLOAD REPORT ----------------
     report = f"""
-AI RESUME ANALYSIS REPORT
--------------------------
+AI STUDY REPORT
+----------------
 
-MATCH SCORE: {score}%
+SUMMARY:
+{summary}
 
-EXPERIENCE: {exp} years
+MCQs:
+{mcqs}
 
-RESUME SKILLS:
-{skills}
-
-MISSING SKILLS:
-{missing}
-
-RECOMMENDATIONS:
-{recommendations(score, missing, exp)}
-
-JD ANALYSIS:
-{jd_analysis(jd_text)}
-
-INTERVIEW QUESTIONS:
-{interview_questions(skills)}
-
-RESUME TEXT (PREVIEW):
-{resume_text[:2000]}
+FLASHCARDS:
+{cards}
 """
-    return report
-
-# ---------------- INPUT ----------------
-resume_file = st.file_uploader("Upload Resume (PDF)", type=["pdf"])
-jd_text = st.text_area("Paste Job Description", height=200)
-
-# ---------------- RUN ----------------
-if st.button("Analyze Resume 🚀"):
-
-    if not resume_file or not jd_text.strip():
-        st.error("Please upload resume and JD")
-        st.stop()
-
-    resume_text = parse_pdf(resume_file)
-
-    resume_skills = extract_skills(resume_text)
-    jd_skills = jd_analysis(jd_text)
-
-    score = match_score(resume_text, jd_text)
-
-    missing = list(set(jd_skills) - set(resume_skills))
-
-    exp = experience(resume_text)
-
-    tips = recommendations(score, missing, exp)
-
-    questions = interview_questions(resume_skills)
-
-    # ---------------- UI OUTPUT ----------------
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Match Score", f"{score}%")
-    col2.metric("Experience", f"{exp} yrs")
-    col3.metric("Skills Found", len(resume_skills))
-
-    st.subheader("🧠 Parsed Resume Skills")
-    st.write(resume_skills)
-
-    st.subheader("❌ Missing Skills")
-    st.write(missing)
-
-    st.subheader("💡 Recommendations")
-    for t in tips:
-        st.success(t)
-
-    st.subheader("🎯 Interview Questions")
-    for q in questions:
-        st.info(q)
-
-    st.subheader("📄 Resume Preview")
-    st.text(resume_text[:3000])
-
-    # ---------------- DOWNLOAD ----------------
-    report = create_report(
-        resume_text,
-        jd_text,
-        score,
-        resume_skills,
-        missing,
-        exp
-    )
 
     st.download_button(
-        "📥 Download Report",
+        "📥 Download Study Notes",
         report,
-        file_name="resume_analysis.txt"
+        file_name="study_report.txt"
     )
+    
