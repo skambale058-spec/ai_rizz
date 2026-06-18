@@ -6,3 +6,4 @@ torch
 numpy
 pandas
 pymupdf
+reports.csv
