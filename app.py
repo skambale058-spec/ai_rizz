@@ -1,57 +1,63 @@
 import streamlit as st
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
 
-# -----------------------------
-# 1. Embedded Dataset
-# -----------------------------
-data = {
-    "text": [
-        "Government launches new education policy",
-        "Aliens landed in India last night confirmed",
-        "WHO approves new vaccine for public use",
-        "Drinking petrol cures diseases viral claim",
-        "Stock market reaches new high today",
-        "Celebrities using blood therapy for youth",
-        "India wins cricket world cup final",
-        "Earth is flat according to viral video",
-        "Scientists discover new planet similar to Earth",
-        "Chocolate can cure cancer instantly"
-    ],
-    "label": [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
-}
+st.set_page_config(page_title="Credit Card Fraud Detector", page_icon="💳")
 
-df = pd.DataFrame(data)
+st.title("💳 Credit Card Fraud Detection")
+st.write("Upload a credit card transaction dataset (CSV).")
 
-# -----------------------------
-# 2. Train Model (inside app)
-# -----------------------------
-vectorizer = TfidfVectorizer(stop_words="english")
-X = vectorizer.fit_transform(df["text"])
-y = df["label"]
+uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
 
-model = LogisticRegression()
-model.fit(X, y)
+if uploaded_file is not None:
+    data = pd.read_csv(uploaded_file)
 
-# -----------------------------
-# 3. Streamlit UI
-# -----------------------------
-st.set_page_config(page_title="Fake News Detector")
+    st.subheader("Dataset Preview")
+    st.dataframe(data.head())
 
-st.title("📰 Fake News Detection App (Single File)")
-st.write("Enter any news text and check if it is REAL or FAKE")
-
-news = st.text_area("Enter News Here")
-
-if st.button("Check News"):
-    if news.strip() == "":
-        st.warning("Please enter some text")
+    if "Class" not in data.columns:
+        st.error("Dataset must contain a 'Class' column (0 = Genuine, 1 = Fraud).")
     else:
-        vec = vectorizer.transform([news])
-        result = model.predict(vec)[0]
+        X = data.drop("Class", axis=1)
+        y = data["Class"]
 
-        if result == 1:
-            st.success("REAL NEWS ✅")
-        else:
-            st.error("FAKE NEWS ❌")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y,
+            test_size=0.2,
+            random_state=42,
+            stratify=y
+        )
+
+        model = RandomForestClassifier(
+            n_estimators=100,
+            random_state=42,
+            class_weight="balanced"
+        )
+
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+
+        st.success(f"Model Accuracy: {accuracy:.4f}")
+
+        st.subheader("Test Transaction Prediction")
+
+        row_index = st.number_input(
+            "Enter Test Row Number",
+            min_value=0,
+            max_value=len(X_test)-1,
+            value=0
+        )
+
+        transaction = X_test.iloc[[row_index]]
+
+        if st.button("Check Fraud"):
+            prediction = model.predict(transaction)[0]
+
+            if prediction == 1:
+                st.error("🚨 Fraudulent Transaction Detected")
+            else:
+                st.success("✅ Genuine Transaction")
