@@ -1,63 +1,72 @@
 import streamlit as st
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
+import os
 
-st.set_page_config(page_title="Credit Card Fraud Detector", page_icon="💳")
+st.set_page_config(page_title="Lost Child / Parent Finder")
 
-st.title("💳 Credit Card Fraud Detection")
-st.write("Upload a credit card transaction dataset (CSV).")
+st.title("🔍 Lost Child / Parent Finder")
 
-uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+DATA_FILE = "reports.csv"
 
-if uploaded_file is not None:
-    data = pd.read_csv(uploaded_file)
+if not os.path.exists(DATA_FILE):
+    pd.DataFrame(
+        columns=["Type", "Name", "Age", "City", "Description", "Contact"]
+    ).to_csv(DATA_FILE, index=False)
 
-    st.subheader("Dataset Preview")
-    st.dataframe(data.head())
+menu = st.sidebar.selectbox(
+    "Select Option",
+    ["Report Missing Person", "Search Person"]
+)
 
-    if "Class" not in data.columns:
-        st.error("Dataset must contain a 'Class' column (0 = Genuine, 1 = Fraud).")
-    else:
-        X = data.drop("Class", axis=1)
-        y = data["Class"]
+if menu == "Report Missing Person":
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y,
-            test_size=0.2,
-            random_state=42,
-            stratify=y
-        )
+    st.header("Submit Report")
 
-        model = RandomForestClassifier(
-            n_estimators=100,
-            random_state=42,
-            class_weight="balanced"
-        )
+    person_type = st.selectbox(
+        "Type",
+        ["Lost Child", "Lost Parent", "Found Child", "Found Parent"]
+    )
 
-        model.fit(X_train, y_train)
+    name = st.text_input("Name")
+    age = st.number_input("Age", 0, 120)
+    city = st.text_input("City")
+    description = st.text_area("Description")
+    contact = st.text_input("Contact Number")
 
-        y_pred = model.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
+    if st.button("Save Report"):
+        df = pd.read_csv(DATA_FILE)
 
-        st.success(f"Model Accuracy: {accuracy:.4f}")
+        new_row = pd.DataFrame([{
+            "Type": person_type,
+            "Name": name,
+            "Age": age,
+            "City": city,
+            "Description": description,
+            "Contact": contact
+        }])
 
-        st.subheader("Test Transaction Prediction")
+        df = pd.concat([df, new_row], ignore_index=True)
+        df.to_csv(DATA_FILE, index=False)
 
-        row_index = st.number_input(
-            "Enter Test Row Number",
-            min_value=0,
-            max_value=len(X_test)-1,
-            value=0
-        )
+        st.success("Report Saved Successfully!")
 
-        transaction = X_test.iloc[[row_index]]
+else:
 
-        if st.button("Check Fraud"):
-            prediction = model.predict(transaction)[0]
+    st.header("Search Person")
 
-            if prediction == 1:
-                st.error("🚨 Fraudulent Transaction Detected")
-            else:
-                st.success("✅ Genuine Transaction")
+    search_city = st.text_input("Enter City")
+    search_age = st.number_input("Enter Age", 0, 120)
+
+    if st.button("Search"):
+        df = pd.read_csv(DATA_FILE)
+
+        results = df[
+            (df["City"].str.lower() == search_city.lower()) &
+            (abs(df["Age"] - search_age) <= 5)
+        ]
+
+        if len(results) > 0:
+            st.success(f"{len(results)} Match Found")
+            st.dataframe(results)
+        else:
+            st.warning("No Match Found")
